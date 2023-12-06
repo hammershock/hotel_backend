@@ -1,7 +1,6 @@
 import os
 import sqlite3
 
-
 db_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../hotel.db'))
 
 
@@ -25,7 +24,7 @@ CREATE TABLE IF NOT EXISTS account (
 
 
 # 创建房间表
-# room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode
+# room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS room (
     room_number INTEGER PRIMARY KEY,
@@ -38,6 +37,7 @@ CREATE TABLE IF NOT EXISTS room (
     ac_temperature INTEGER,
     ac_speed TEXT,
     ac_mode TEXT,
+    customer_session_id INTEGER,
     FOREIGN KEY (account_id) REFERENCES account (account_id) ON DELETE SET NULL
 )
 ''')
@@ -59,6 +59,21 @@ CREATE TABLE IF NOT EXISTS room_records (
     ac_rate REAL
 )
 ''')
+
+# 创建 settings 表
+# setting_id, timestamp, min_temperature, max_temperature, ac_rate, ac_speed, ac_mode
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS settings (
+    setting_id INTEGER PRIMARY KEY,
+    timestamp TEXT,
+    min_temperature INTEGER,
+    max_temperature INTEGER,
+    ac_rate REAL,
+    ac_speed TEXT,
+    ac_mode TEXT
+)
+''')
+
 
 # 提交更改并关闭数据库连接
 conn.commit()

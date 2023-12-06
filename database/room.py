@@ -1,4 +1,5 @@
 import os
+import random
 import sqlite3
 from typing import List, Tuple, Union
 
@@ -17,6 +18,7 @@ def create(
         ac_temperature: int,
         ac_speed: str,
         ac_mode: str,
+        customer_session_id: int,
         account_id: int = None
 ) -> int:
     """
@@ -30,6 +32,7 @@ def create(
     :param ac_temperature: 空调温度
     :param ac_speed: 空调风速
     :param ac_mode: 空调模式
+    :param customer_session_id:
     :param account_id: 账号 ID（可选，如果有账号与房间关联）
     :return: 创建的房间记录ID
     """
@@ -37,9 +40,9 @@ def create(
     cursor = conn.cursor()
 
     cursor.execute(
-        'INSERT INTO room (room_number, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO room (room_number, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, account_id, customer_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (room_number, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed,
-         ac_mode, account_id))
+         ac_mode, account_id, customer_session_id))
 
     new_id = cursor.lastrowid
     conn.commit()
@@ -73,6 +76,7 @@ def update(
         ac_temperature: int = None,
         ac_speed: str = None,
         ac_mode: str = None,
+        customer_session_id: int = None,
         account_id: int = None
 ) -> None:
     """
@@ -86,6 +90,7 @@ def update(
     :param ac_temperature: 空调温度
     :param ac_speed: 空调风速
     :param ac_mode: 空调模式
+    :param customer_session_id: 顾客会话ID
     :param account_id: 账号 ID（可选，如果要关联账号）
     :return: 修改的房间记录数
     """
@@ -98,7 +103,7 @@ def update(
     for field, value in {'room_type': room_type, 'room_duration': room_duration,
                          'room_consumption': room_consumption, 'room_temperature': room_temperature,
                          'ac_is_on': ac_is_on, 'ac_temperature': ac_temperature, 'ac_speed': ac_speed,
-                         'ac_mode': ac_mode, 'account_id': account_id}.items():
+                         'ac_mode': ac_mode, 'customer_session_id': customer_session_id, 'account_id': account_id}.items():
         if value is not None:
             query += f" {field} = ?,"
             params.append(value)
@@ -124,6 +129,7 @@ def query(
         ac_temperature: Union[int, tuple[int, int]] = None,
         ac_speed: str = None,
         ac_mode: str = None,
+        customer_session_id: int = None,
         account_id: int = None,
         fetchall=None,
         fetchone=None
@@ -139,10 +145,11 @@ def query(
     :param ac_temperature: 空调温度
     :param ac_speed: 空调风速
     :param ac_mode: 空调模式
+    :param customer_session_id: 顾客会话ID
     :param account_id: 账号 ID（可选，如果要查询与账号关联的房间）
     :param fetchall
     :param fetchone
-    :return: (room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode)
+    :return: (room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id)
     """
     query = "SELECT * FROM room WHERE"
     params = []
@@ -158,6 +165,7 @@ def query(
         'ac_temperature': ac_temperature,
         'ac_speed': ac_speed,
         'ac_mode': ac_mode,
+        'customer_session_id': customer_session_id,
         'account_id': account_id
     }.items():
         if value is not None:
@@ -184,6 +192,8 @@ def query(
         rooms = cursor.fetchall()
     elif fetchone:
         rooms = cursor.fetchone()
+    elif fetchall:
+        rooms = cursor.fetchall()
     else:
         rooms = cursor.fetchone()
     conn.close()
@@ -191,5 +201,15 @@ def query(
     return rooms
 
 
+def generate_customer_session_id() -> int:
+    """
+    生成一个用于 customer_session_id 的随机整数
+    :return: 随机生成的 customer_session_id
+    """
+    # 生成一个随机整数，这里的范围可以根据需要调整
+    session_id = random.randint(10000, 99999)
+    return session_id
+
+
 if __name__ == "__main__":
-    create(111, '大床房', 1, 0.0, 30, False, 28, 'low', 'heating', 1)
+    create(215, '大床房', 3, 3.0, 31, False, 28, 'high', 'cool', generate_customer_session_id(), None)

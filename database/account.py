@@ -7,13 +7,15 @@ db_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)
 
 
 # 增
-def create(username: str, role: str, password: str, id_card: str = None, phone_number: str = None) -> None:
+def create(username: str, role: str, password: str, id_card: str = None, phone_number: str = None) -> int:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('INSERT INTO account (username, role, password, id_card, phone_number) VALUES (?, ?, ?, ?, ?)',
                    (username, role, password, id_card, phone_number))
     conn.commit()
+    account_id = cursor.lastrowid  # 获取最新插入行的 ID
     conn.close()
+    return account_id
 
 
 # 删
@@ -127,6 +129,8 @@ def query(
         accounts = cursor.fetchall()
     elif fetchone:
         accounts = cursor.fetchone()
+    elif fetchall:
+        accounts = cursor.fetchall()
     else:
         accounts = cursor.fetchone()
 
