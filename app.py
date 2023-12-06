@@ -7,8 +7,9 @@ from flask_cors import CORS
 import datetime
 
 import database.roles
-from database.roles import manager, customer
+
 from database import room, account, record, settings
+from database.roles import *
 
 app = Flask(__name__)
 CORS(app)
@@ -190,6 +191,41 @@ def delete_account():
     return jsonify({"msg": ""}), 404
 
 
+@app.route('/create-account', methods=['POST'])
+@jwt_required()
+def create_account():
+    data = request.json
+    # { username: '', password: '', role: '', idCard: '', phoneNumber: '' }
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        account.create(username=data['username'], role=data['role'], password=data['password'], id_card=data['idCard'], phone_number=data['phoneNumber'])
+        return jsonify({"msg": "创建成功"}), 201
+
+    return jsonify({"msg": ""}), 404
+
+
+@app.route('/create-room', methods=['POST'])
+@jwt_required()
+def create_room():
+    data = request.json
+    #
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        room.create(room_number=data['roomNumber'], room_type=data['roomType'], room_duration=data['roomDuration'],
+                    room_consumption=0.0, room_temperature=random.randint(27, 34),
+                    ac_is_on=False, ac_temperature=DEFAULT_AC_TEMPERATURE,
+                    ac_speed=AC_SPEED_LOW, ac_mode=AC_MODE_COOL,
+                    customer_session_id=generate_customer_session_id(), account_id=None)
+        return jsonify({"msg": "创建成功"}), 201
+    return jsonify({"msg": ""}), 404
+
+
 @app.route('/delete-room', methods=['POST'])
 @jwt_required()
 def delete_room():
@@ -244,7 +280,6 @@ def get_rooms_state():
     return jsonify({"msg": ""}), 404
 
 
-
 @app.route('/view-accounts', methods=['GET'])
 @jwt_required()
 def get_accounts():
@@ -258,6 +293,7 @@ def get_accounts():
         return jsonify([{'accountID': r[0], "username": r[1], "role": r[3], "idCard": r[4], "phoneNumber": r[5]} for r in accounts]), 200
 
     return jsonify({"msg": ""}), 404
+
 
 
 @app.route('/view-rooms', methods=['GET'])

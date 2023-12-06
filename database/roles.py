@@ -8,3 +8,6 @@ AC_SPEED_HIGH = 'high'
 
 AC_MODE_COOL = 'cool'
 AC_MODE_HEAT = 'heat'
+
+DEFAULT_AC_TEMPERATURE = 28
+
