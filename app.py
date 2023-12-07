@@ -241,6 +241,26 @@ def delete_room():
     return jsonify({"msg": ""}), 404
 
 
+@app.route('/change-settings', methods=['POST'])
+@jwt_required()
+def change_settings():
+    data = request.json
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        settings.create(timestamp=get_time_stamp(),
+                        min_temperature=data['minTemperature'],
+                        max_temperature=data['maxTemperature'],
+                        ac_rate=data['acRate'],
+                        ac_speed=data['acSpeed'],
+                        ac_mode=data['acMode'])
+        return jsonify({"msg": "更改成功"}), 201
+
+    return jsonify({"msg": ""}), 404
+
+
 @app.route('/rooms-available', methods=['GET'])
 @jwt_required()
 def get_rooms_available():
@@ -295,7 +315,6 @@ def get_accounts():
     return jsonify({"msg": ""}), 404
 
 
-
 @app.route('/view-rooms', methods=['GET'])
 @jwt_required()
 def get_rooms():
@@ -307,11 +326,12 @@ def get_rooms():
     if role == database.roles.manager:
         rooms = room.query(fetchall=True)
         # room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id
-        return jsonify([{'id': r[0], "type": r[2], "days": r[3], "consumption": r[4]} for r in rooms]), 200
+        return jsonify([{'id': r[0], 'occupied': r[1] is not None, "type": r[2], "duration": r[3], "consumption": r[4], 'roomTemperature': r[5], 'acIsOn': r[6], 'acTemperature': r[7], 'acSpeed': r[8], 'acMode': r[9]
+                         } for r in rooms]), 200
 
     return jsonify({"msg": ""}), 404
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000)
 

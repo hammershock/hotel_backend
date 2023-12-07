@@ -212,4 +212,4 @@ def generate_customer_session_id() -> int:
 
 
 if __name__ == "__main__":
-    create(215, '大床房', 3, 3.0, 31, False, 28, 'high', 'cool', generate_customer_session_id(), None)
+    create(345, '大床房', 3, 3.0, 31, True, 32, 'high', 'cool', generate_customer_session_id(), 2)
