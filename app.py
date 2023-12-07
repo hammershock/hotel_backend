@@ -36,6 +36,306 @@ def generate_customer_session_id() -> int:
     return session_id
 
 
+@app.route('/update-status/<int:room_id>', methods=['POST'])
+@jwt_required()
+def update_status(room_id):
+    """
+    写入房间状态数据<WRITE>
+    # data
+        # isOn
+        # temperature
+        # fanSpeed
+        # mode
+        # roomType (可选，只有管理员可以修改这个)
+        # roomDuration　(可选，只有管理员可以修改)
+
+        # 不提供给管理员修改房间总消费额和房间温度的API
+    :param room_id: 房间号
+    :return:
+    """
+    account_id = get_jwt_identity()  # 查询来自的帐号名
+    account_data = account.query(account_id=account_id, fetchone=True)
+    role = account_data[3]  # 判断查询的是什么角色, 所有的角色都有这个权限故不做判定
+    data = request.json
+
+    # 检查房间是否存在
+    room_data = room.query(room_number=room_id, fetchone=True)
+
+    if room_data is None:
+        return jsonify({"msg": 'room not found'}), 404
+
+    if account_id != room_data[1]:
+        return jsonify({"msg": ""}), 403  # 403 forbidden
+
+    (room_number, account_id, room_type, room_duration, room_consumption, room_temperature,
+     ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id) = room_data
+
+    is_manager = role == database.roles.manager
+    # 检验修改是否合法
+    # ...
+    # 修改房间状态
+    room.update(room_number=room_id,
+                room_type=data.get('roomType', None) if is_manager else None,
+                room_duration=data.get('roomDuration', None) if is_manager else None,
+                ac_is_on=data['isOn'],
+                ac_temperature=data['temperature'],
+                ac_speed=data['fanSpeed'],
+                ac_mode=data['mode'],
+                )
+
+    _, _, _, _, ac_rate = settings.get_latest_setting(ac_speed, ac_mode)
+
+    record.add(room_number=room_id,
+               customer_session_id=generate_customer_session_id(),
+               room_temperature=room_temperature,
+               timestamp=get_time_stamp(),
+               ac_is_on=ac_is_on,
+               ac_temperature=ac_temperature,
+               ac_speed=ac_speed,
+               ac_mode=ac_mode,
+               ac_rate=ac_rate)
+
+    return jsonify({"msg": "状态更新成功"}), 200
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    """
+    用户、前台、管理员的登录
+    <唯一不需要token的操作接口>
+    # data
+        # username
+        # password
+        # role  # 在'客户', '管理员', '前台'中指定
+
+    :return:
+    """
+    try:
+        data = request.json
+        username = data['username']
+        password = data['password']
+        role = data['role']
+
+        account_data = account.query(username=username, role=role, password=password, fetchone=True)
+
+        if account_data is None:
+            return jsonify({"msg": "Bad username or password"}), 401  # 401 Unauthorized
+
+        # 创建 JWT token
+        expires = datetime.timedelta(days=7)
+        access_token = create_access_token(identity=account_data[0], expires_delta=expires)
+        return jsonify(token=access_token), 200  # 200 ok
+    except KeyError as e:
+        return jsonify({"msg": e}), 400  # 400 bad request 请求格式不正确
+    # 500 server error
+
+
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    """
+    使用JWT token 进行验证
+    不需要登出操作
+    服务端不需要维护登录态
+    :return:
+    """
+    raise NotImplementedError
+
+
+@app.route('/register', methods=['POST'])
+@jwt_required()
+def register():
+    """
+    注册用户帐号，传入json消息体格式如:
+    # data:
+        # username: this.selectedRoom,
+        # password: this.account.password,
+        # roomNumber: this.account.roomNumber
+        # days: this.customer.days
+        # idCard: this.customer.idCard,  # (可选)
+        # phone: this.customer.phone,　　# (可选)
+
+    权限设置：只有[前台，管理员]能进行此操作
+    :return:
+    """
+    data = request.json
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+    if role not in {database.roles.front_desk, database.roles.manager}:
+        return jsonify({"msg": ""}), 403  # Forbidden
+
+    try:
+        room_data = room.query(room_number=data['roomNumber'], fetchone=True)
+        if room_data is None or room_data[1] is not None:
+            return jsonify({"msg": "房间不存在或已被占用"}), 404  # 404 NotFound
+
+        new_account_id = account.create(data['username'],
+                                        database.roles.customer,  # 通过登记方法注册的一定是客户帐号
+                                        data['password'],
+                                        data['roomNumber'],  # 登记用户时，其对应的房间是必选的项
+                                        data.get('idCard', None),
+                                        data.get('phone', None))
+
+        room.update(room_number=data['roomNumber'],
+                    room_duration=data['days'],
+                    room_consumption=0.0,  # 初始化房间累计消费额为0
+                    account_id=new_account_id,  # 将创建的用户id与房间关联
+                    customer_session_id=generate_customer_session_id())  # 生成随机用户会话标记，标记每个用户的入住阶段
+
+        return jsonify({"msg": "注册成功", "newAccountID": new_account_id}), 201
+
+    except KeyError as e:
+        return jsonify({"msg": e}), 400  # 400 bad request 请求格式不正确
+    # 500, 服务器错误
+
+
+@app.route('/delete-account', methods=['POST'])
+@jwt_required()
+def delete_account():
+    """
+    删除任何一个帐号只需要用户名即可，但只有管理员有权限
+    # data
+        # username
+    :return:
+    """
+    data = request.json
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    account_data = account.query(account_id=account_id, fetchone=True)
+    role = account_data[3]  # 判断查询的是什么角色
+    if role == database.roles.manager:
+        account.delete(username=data['username'], role=data['role'])
+        return jsonify({"msg": "注销成功"}), 201
+
+    return jsonify({"msg": ""}), 404
+
+
+@app.route('/create-account', methods=['POST'])
+@jwt_required()
+def create_account():
+    """
+    创建帐号是管理员能做的事情，与register区分开
+    不建议使用此方法创建客户帐号，建议走register流程
+
+    # data
+        # username
+        # password
+        # role # 在'客户', '管理员', '前台'中指定， 必选
+        # idCard (可选)
+        # phoneNumber (可选)
+        # roomNumber (可选，注册管理帐号不一定与房间挂钩)
+    :return:
+    """
+    data = request.json
+    # { username: '', password: '', role: '', idCard: '', phoneNumber: '', roomNumber: ''}
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        account.create(username=data['username'],
+                       role=data['role'],
+                       password=data['password'],
+                       room_number=data['roomNumber'],
+                       id_card=data['idCard'],
+                       phone_number=data['phoneNumber'])
+        return jsonify({"msg": "创建成功"}), 201
+
+    return jsonify({"msg": ""}), 404
+
+
+@app.route('/create-room', methods=['POST'])
+@jwt_required()
+def create_room():
+    """
+    创建新房间是管理员特有的权限
+
+    # data
+        # roomNumber
+        # roomType
+        # role # 在'客户', '管理员', '前台'中指定， 必选
+        # idCard (可选)
+        # phoneNumber (可选)
+        # roomNumber (可选，注册管理帐号不一定与房间挂钩)
+    :return:
+    """
+    data = request.json
+    #
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        room.create(room_number=data['roomNumber'],
+                    room_type=data['roomType'],
+                    room_duration=0,  # 设置为0
+                    room_consumption=0.0,  # 初始消费为0
+                    room_temperature=random.randint(27, 34),  # 初始温度随机
+                    ac_is_on=False,
+                    ac_temperature=DEFAULT_AC_TEMPERATURE,
+                    ac_speed=AC_SPEED_LOW,
+                    ac_mode=AC_MODE_COOL,
+                    customer_session_id=generate_customer_session_id(),
+                    account_id=None)  # 帐号关联为空
+
+        return jsonify({"msg": "创建成功"}), 201
+    return jsonify({"msg": ""}), 404
+
+
+@app.route('/delete-room', methods=['POST'])
+@jwt_required()
+def delete_room():
+    """
+    删除房间，只需要房间号，只有管理员有权限
+    # data
+        # roomID
+    :return:
+    """
+    data = request.json
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        room.delete(room_number=data['roomID'])
+        return jsonify({"msg": "注销成功"}), 201
+
+    return jsonify({"msg": ""}), 404
+
+
+@app.route('/change-settings', methods=['POST'])
+@jwt_required()
+def change_settings():
+    """
+    更改空调设置
+    # data
+        # minTemperature
+        # maxTemperature
+        # acMode
+        # acSpeed
+        # acRate
+    :return:
+    """
+    data = request.json
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        settings.create(timestamp=get_time_stamp(),
+                        min_temperature=data['minTemperature'],
+                        max_temperature=data['maxTemperature'],
+                        ac_rate=data['acRate'],
+                        ac_speed=data['acSpeed'],
+                        ac_mode=data['acMode'])
+        return jsonify({"msg": "更改成功"}), 201
+
+    return jsonify({"msg": ""}), 404
+
+
+# -------------------------------------------------------GET-----------------------------------------------------------
+
+
 @app.route('/room-status/<int:room_id>', methods=['GET'])
 @jwt_required()
 def get_room_status(room_id):
@@ -54,255 +354,89 @@ def get_room_status(room_id):
 
     if role == manager:
         room_status = room.query(fetchone=True, room_number=room_id)  # 总经理可以查询任意id
-
     elif role == customer:
         room_status = room.query(account_id=account_id, fetchone=True)  # 根据客户自己的房间ID来查找，不论客户查询什么房间都返回其自己的房间信息
     else:
         room_status = None
 
     if room_status is None:
-        return jsonify({}), 404  # Not Found
+        return jsonify({}), 403  # Forbidden
 
-    room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id = room_status
+    (room_number, account_id, room_type, room_duration, room_consumption, room_temperature,
+     ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id) = room_status
 
     _, _, min_temperature, max_temperature, ac_rate = settings.get_latest_setting(ac_speed, ac_mode)
+
     return jsonify(
-        {'isOn': ac_is_on, 'temperature': ac_temperature, 'fanSpeed': ac_speed,
-         'mode': ac_mode, 'consumption': room_consumption, 'roomTemperature': room_temperature,
-         'rate': ac_rate, 'temperatureMin': min_temperature, 'temperatureMax': max_temperature}), 200
-
-
-@app.route('/update-status/<int:room_id>', methods=['POST'])
-@jwt_required()
-def update_status(room_id):
-    """
-    修改房间状态数据<WRITE>
-    权限设置：用户只能修改自己对应的房间状态，而管理员可以修改所有的房间状态，不为前台提供这项接口
-    前置条件：房间号必须存在，修改状态合法
-    后置条件：房间状态已修改
-    :param room_id: 房间号
-    :return:
-    """
-    account_id = get_jwt_identity()  # 查询来自的帐号名
-
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-    data = request.json
-
-    room.update(room_number=room_id, ac_is_on=data['isOn'], ac_temperature=data['temperature'], ac_speed=data['fanSpeed'], ac_mode=data['mode'])
-    room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id = room.query(room_number=room_id, fetchone=True)
-    print(ac_speed, ac_mode)
-    _, _, _, _, ac_rate = settings.get_latest_setting(ac_speed, ac_mode)
-    record.add(room_number=room_id, customer_session_id=generate_customer_session_id(), room_temperature=room_temperature, timestamp=get_time_stamp(), ac_is_on=ac_is_on, ac_temperature=ac_temperature, ac_speed=ac_speed, ac_mode=ac_mode, ac_rate=ac_rate)
-
-    return jsonify({"msg": "状态更新成功"}), 200
-
-
-@app.route('/login', methods=['POST'])
-def login():
-    """
-    用户、前台、管理员的登录
-    <唯一不需要token的操作接口>
-    :return:
-    """
-    username = request.json.get('username', None)
-    password = request.json.get('password', None)
-    role = request.json.get('role', None)
-    # tables = account.print_tables()
-    acc = account.query(username=username, role=role, password=password, fetchone=True)
-    if acc is None:
-        return jsonify({"msg": "Bad username or password"}), 401
-    # 创建 JWT token
-    expires = datetime.timedelta(days=7)
-    access_token = create_access_token(identity=acc[0], expires_delta=expires)
-    return jsonify(token=access_token)
-
-
-@app.route('/logout', methods=['POST'])
-@jwt_required()
-def logout():
-    """
-    登出，这部分逻辑是冗余的，因为JWT token不需要也不能进行销毁，它们到时间会自动过期
-    在这里仅仅是为了前后呼应233
-    :return:
-    """
-    return jsonify({"msg": "登出成功"}), 200
-
-
-@app.route('/register', methods=['POST'])
-@jwt_required()
-def register():
-    """
-    注册用户帐号，传入json消息体格式如:
-    {'account': {'username': 210, 'password': '666', role: 'customer'},
-    'customer': {'idCard': '124', 'phone': '124', 'roomType': '标准间', 'days': 3},
-    'manager' : {这个不重要...}}
-    权限设置：只有[前台，管理员]能进行此操作, 且前台只能注册客户帐号
-    :return:
-    """
-    data = request.json
-    account_id = get_jwt_identity()  # 查询来自的帐号id
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-    try:
-        # data:
-        # username: this.selectedRoom,
-        # password: this.account.password,
-        #
-        # idCard: this.customer.idCard,
-        # phone: this.customer.phone,
-        # roomType: this.customer.roomType,
-        # days: this.customer.days
-
-        # role: ...
-        if role == database.roles.front_desk:
-            room_exists = room.query(room_number=int(data['username']), fetchone=True) is not None
-            if room_exists:
-                new_account_id = account.create(data['username'], database.roles.customer, data['password'],
-                                                data['idCard'], data['phone'])
-                room.update(room_number=int(data['username']),
-                            room_duration=data['days'],
-                            room_consumption=0.0,
-                            account_id=new_account_id,
-                            customer_session_id=generate_customer_session_id())
-
-                return jsonify({"msg": "注册成功", "new_account_id": new_account_id}), 201
-            return jsonify({"msg": ""}), 404
-
-        elif role == database.roles.manager:
-            new_account_id = account.create(data['username'], data['role'], data['password'], data['idCard'], data['phone'])
-            return jsonify({"msg": "注册成功", 'new_account_id': new_account_id}), 201
-    except Exception as e:
-        print(e)
-    return jsonify({"msg": ""}), 401
-
-
-@app.route('/delete-account', methods=['POST'])
-@jwt_required()
-def delete_account():
-    data = request.json
-    account_id = get_jwt_identity()  # 查询来自的帐号id
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-    if role == database.roles.manager:
-        account.delete(username=data['username'], role=data['role'])
-        return jsonify({"msg": "注销成功"}), 201
-
-    return jsonify({"msg": ""}), 404
-
-
-@app.route('/create-account', methods=['POST'])
-@jwt_required()
-def create_account():
-    data = request.json
-    # { username: '', password: '', role: '', idCard: '', phoneNumber: '' }
-    account_id = get_jwt_identity()  # 查询来自的帐号id
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-
-    if role == database.roles.manager:
-        account.create(username=data['username'], role=data['role'], password=data['password'], id_card=data['idCard'], phone_number=data['phoneNumber'])
-        return jsonify({"msg": "创建成功"}), 201
-
-    return jsonify({"msg": ""}), 404
-
-
-@app.route('/create-room', methods=['POST'])
-@jwt_required()
-def create_room():
-    data = request.json
-    #
-    account_id = get_jwt_identity()  # 查询来自的帐号id
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-
-    if role == database.roles.manager:
-        room.create(room_number=data['roomNumber'], room_type=data['roomType'], room_duration=data['roomDuration'],
-                    room_consumption=0.0, room_temperature=random.randint(27, 34),
-                    ac_is_on=False, ac_temperature=DEFAULT_AC_TEMPERATURE,
-                    ac_speed=AC_SPEED_LOW, ac_mode=AC_MODE_COOL,
-                    customer_session_id=generate_customer_session_id(), account_id=None)
-        return jsonify({"msg": "创建成功"}), 201
-    return jsonify({"msg": ""}), 404
-
-
-@app.route('/delete-room', methods=['POST'])
-@jwt_required()
-def delete_room():
-    data = request.json
-    account_id = get_jwt_identity()  # 查询来自的帐号id
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-
-    if role == database.roles.manager:
-        room.delete(room_number=data['roomID'])
-        return jsonify({"msg": "注销成功"}), 201
-
-    return jsonify({"msg": ""}), 404
-
-
-@app.route('/change-settings', methods=['POST'])
-@jwt_required()
-def change_settings():
-    data = request.json
-    account_id = get_jwt_identity()  # 查询来自的帐号id
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-
-    if role == database.roles.manager:
-        settings.create(timestamp=get_time_stamp(),
-                        min_temperature=data['minTemperature'],
-                        max_temperature=data['maxTemperature'],
-                        ac_rate=data['acRate'],
-                        ac_speed=data['acSpeed'],
-                        ac_mode=data['acMode'])
-        return jsonify({"msg": "更改成功"}), 201
-
-    return jsonify({"msg": ""}), 404
+        {'isOn': ac_is_on,
+         'temperature': ac_temperature,
+         'fanSpeed': ac_speed,
+         'mode': ac_mode,
+         'consumption': room_consumption,
+         'roomTemperature': room_temperature,
+         'rate': ac_rate,
+         'temperatureMin': min_temperature,
+         'temperatureMax': max_temperature}), 200
 
 
 @app.route('/rooms-available', methods=['GET'])
 @jwt_required()
 def get_rooms_available():
+    """
+    获取所有房间的可用状态：提供给前台使用
+    返回所有房间号和是否已入住(occupied)
+    [{'number': int, "occupied": bool}, ...]
+    :return:
+    """
     account_id = get_jwt_identity()  # 查询来自的帐号名
 
     acc = account.query(account_id=account_id, fetchone=True)
     role = acc[3]  # 判断查询的是什么角色
 
-    if role == database.roles.front_desk:
+    if role == database.roles.front_desk or role == database.roles.manager:
         rooms = room.query(fetchall=True)
         return jsonify([{'number': r[0], "occupied": r[1] is not None} for r in rooms]), 200
 
     return jsonify({"msg": ""}), 404
 
 
-@app.route('/rooms-state', methods=['GET'])
-@jwt_required()
-def get_rooms_state():
-    account_id = get_jwt_identity()  # 查询来自的帐号名
-
-    acc = account.query(account_id=account_id, fetchone=True)
-    role = acc[3]  # 判断查询的是什么角色
-    if role == database.roles.manager:
-        rooms = room.query(fetchall=True)
-        return jsonify([{'roomNumber': r[0],
-                         "occupied": r[1] is not None,
-                         "type": r[2],
-                         "duration": r[3],
-                         "consumption": r[4],
-                         "roomTemperature": r[5],
-                         "acIsOn": r[6],
-                         "acTemperature": r[7],
-                         "acSpeed": r[8],
-                         "acMode": r[9],
-                         "customerSessionID": r[10]} for r in rooms]), 200
-
-    return jsonify({"msg": ""}), 404
+# @app.route('/rooms-state', methods=['GET'])
+# @jwt_required()
+# def get_rooms_state():
+#     """
+#     获取所有房间的状态，给管理员可视化使用
+#
+#     :return:
+#     """
+#     account_id = get_jwt_identity()  # 查询来自的帐号名
+#
+#     acc = account.query(account_id=account_id, fetchone=True)
+#     role = acc[3]  # 判断查询的是什么角色
+#     if role == database.roles.manager:
+#         rooms = room.query(fetchall=True)
+#         return jsonify([{'roomNumber': r[0],
+#                          "occupied": r[1] is not None,
+#                          "type": r[2],
+#                          "duration": r[3],
+#                          "consumption": r[4],
+#                          "roomTemperature": r[5],
+#                          "acIsOn": r[6],
+#                          "acTemperature": r[7],
+#                          "acSpeed": r[8],
+#                          "acMode": r[9],
+#                          "customerSessionID": r[10]} for r in rooms]), 200
+#
+#     return jsonify({"msg": ""}), 404
 
 
 @app.route('/view-accounts', methods=['GET'])
 @jwt_required()
 def get_accounts():
+    """
+    查询所有帐号的信息，给管理员使用
+    (不过还是不会给密码的啦)
+    :return:
+    """
     account_id = get_jwt_identity()  # 查询来自的帐号名
 
     acc = account.query(account_id=account_id, fetchone=True)
@@ -318,6 +452,10 @@ def get_accounts():
 @app.route('/view-rooms', methods=['GET'])
 @jwt_required()
 def get_rooms():
+    """
+    给管理员用来查看所有房间状态，
+    :return:
+    """
     account_id = get_jwt_identity()  # 查询来自的帐号名
 
     acc = account.query(account_id=account_id, fetchone=True)
@@ -326,7 +464,16 @@ def get_rooms():
     if role == database.roles.manager:
         rooms = room.query(fetchall=True)
         # room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id
-        return jsonify([{'id': r[0], 'occupied': r[1] is not None, "type": r[2], "duration": r[3], "consumption": r[4], 'roomTemperature': r[5], 'acIsOn': r[6], 'acTemperature': r[7], 'acSpeed': r[8], 'acMode': r[9]
+        return jsonify([{'id': r[0],
+                         'occupied': r[1] is not None,
+                         "type": r[2],
+                         "duration": r[3],
+                         "consumption": r[4],
+                         'roomTemperature': r[5],
+                         'acIsOn': r[6],
+                         'acTemperature': r[7],
+                         'acSpeed': r[8],
+                         'acMode': r[9]
                          } for r in rooms]), 200
 
     return jsonify({"msg": ""}), 404

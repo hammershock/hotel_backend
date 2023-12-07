@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS account (
     account_id INTEGER PRIMARY KEY,
     username TEXT NOT NULL,
     password TEXT NOT NULL,
-    role TEXT NOT NULL,
+    role TEXT NOT NULL, 
+    room_number INTEGER, -- 可选字段
     id_card TEXT,  -- 可选字段
     phone_number TEXT  -- 可选字段
 )

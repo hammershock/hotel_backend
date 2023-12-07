@@ -7,11 +7,12 @@ db_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)
 
 
 # 增
-def create(username: str, role: str, password: str, id_card: str = None, phone_number: str = None) -> int:
+def create(username: str, role: str, password: str, room_number: int = None, id_card: str = None, phone_number: str = None) -> int:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO account (username, role, password, id_card, phone_number) VALUES (?, ?, ?, ?, ?)',
-                   (username, role, password, id_card, phone_number))
+    cursor.execute('INSERT INTO account (username, role, password, room_number, id_card, phone_number) VALUES (?, ?, ?, ?, ?, ?)',
+                   (username, role, password, room_number, id_card, phone_number
+                    ))
     conn.commit()
     account_id = cursor.lastrowid  # 获取最新插入行的 ID
     conn.close()
@@ -40,6 +41,7 @@ def update(
     username: str = None,
     role: str = None,
     password: str = None,
+    room_number: int = None,
     id_card: str = None,
     phone_number: str = None
 ) -> None:
@@ -49,6 +51,7 @@ def update(
     :param username: 用户名
     :param role: 角色
     :param password: 密码
+    :param room_number: 房间号
     :param id_card: 身份证号
     :param phone_number: 手机号
     :return: None
@@ -59,7 +62,7 @@ def update(
     query = 'UPDATE account SET'
     params = []
 
-    for field, value in {'username': username, 'password': password, 'role': role,
+    for field, value in {'username': username, 'password': password, 'role': role, 'room_number': room_number,
                          'id_card': id_card, 'phone_number': phone_number}.items():
         if value is not None:
             query += f" {field} = ?,"
@@ -81,6 +84,7 @@ def query(
         username: str = None,
         role: str = None,
         password: str = None,
+        room_number: str = None,
         id_card: str = None,
         phone_number: str = None,
         fetchall=None,
@@ -92,6 +96,7 @@ def query(
     :param username: 用户名
     :param role: 角色
     :param password: 密码
+    :param room_number: 房间号
     :param id_card: 身份证号
     :param phone_number: 手机号
     :param fetchall:
@@ -106,6 +111,7 @@ def query(
         'account_id': account_id,
         'username': username,
         'role': role,
+        'room_number': room_number,
         'password': password,
         'id_card': id_card,
         'phone_number': phone_number
@@ -139,7 +145,7 @@ def query(
 
 
 if __name__ == "__main__":
-    create('111', '客户', '111', '666', '233')
-    create('222', '管理员', '222', '777', '724')
-    create('333', '前台', '333', '999', '634')
+    create('111', '客户', '111', 110, '666', '233')
+    create('222', '管理员', '222', 111, '777', '724')
+    create('333', '前台', '333', 112, '999', '634')
 
