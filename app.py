@@ -87,7 +87,7 @@ def update_status(room_id=None):
     _, _, _, _, ac_rate = settings.get_latest_setting(ac_speed, ac_mode)
 
     record.add(room_number=room_id,
-               customer_session_id=generate_customer_session_id(),
+               customer_session_id=customer_session_id,
                room_temperature=room_temperature,
                timestamp=get_time_stamp(),
                ac_is_on=ac_is_on,
@@ -191,6 +191,51 @@ def register():
     # 500, 服务器错误
 
 
+@app.route('/check-out', methods=['POST'])
+@jwt_required()
+def signout():
+    """
+    用户办理退房:
+    json消息体可以包含：
+    # data
+        # roomNumber  (二者任选其一)
+        # username  (二者任选其一)
+    :return:
+    """
+
+    data = request.json
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    role = acc[3]  # 判断查询的是什么角色
+    if role not in {database.roles.front_desk, database.roles.manager}:
+        return jsonify({"msg": ""}), 403  # Forbidden
+
+    if data.get('roomNumber') is None:
+        username = data['username']
+        acc = account.query(username=username, role=database.roles.customer, fetchone=True)
+        room_number = acc[4]
+    else:
+        room_number = data['roomNumber']
+        customer_account_id = room.query(room_number=room_number, fetchone=True)[1]
+        acc = account.query(customer_account_id, fetchone=True)
+        if acc is None:
+            return jsonify({"msg": "房间不存在或已被清空"}), 404  # 404 NotFound
+        username = acc[1]
+
+    try:
+        room_data = room.query(room_number=room_number, fetchone=True)
+        if room_data is None or room_data[1] is None:
+            return jsonify({"msg": "房间不存在或已被清空"}), 404  # 404 NotFound
+
+        account.delete(username, database.roles.customer)
+        room.update_kwargs(room_number, room_duration=0, room_consumption=0.0, ac_is_on=False, customer_session_id=None, account_id=None)
+
+        return jsonify({"msg": "退房成功"}), 201
+
+    except KeyError as e:
+        return jsonify({"msg": e}), 400  # 400 bad request 请求格式不正确
+
+
 @app.route('/delete-account', methods=['POST'])
 @jwt_required()
 def delete_account():
@@ -234,12 +279,20 @@ def create_account():
     role = acc[3]  # 判断查询的是什么角色
 
     if role == database.roles.manager:
-        print(data)
-        print(data.get('roomNumber'))
-        if data.get('roomNumber'):
+        room_number = data.get('roomNumber')
+        if room_number:
             room_data = room.query(room_number=data['roomNumber'], fetchone=True)
             if room_data is None or room_data[1] is not None:
                 return jsonify({"msg": "房间不存在或已被占用"}), 404  # 404 NotFound
+            account_id = account.create(username=data['username'],
+                           role=data['role'],
+                           password=data['password'],
+                           room_number=data.get('roomNumber', None),
+                           id_card=data['idCard'],
+                           phone_number=data['phoneNumber'])
+
+            room.update(room_number, room_duration=data['days'], room_consumption=0.0, customer_session_id=generate_customer_session_id(), account_id=account_id)
+            return jsonify({"msg": "用户帐号已经注册且入住已经办理"}), 201
 
         account.create(username=data['username'],
                        role=data['role'],
@@ -489,6 +542,43 @@ def get_rooms():
     return jsonify({"msg": ""}), 404
 
 
+@app.route('/room-details', methods=['GET'])
+@app.route('/room-details/<int:room_id>', methods=['GET'])
+@jwt_required()
+def get_room_details(room_id=None):
+    """
+    查询房间状态数据<READ>
+    权限设置：用户只能查询自己对应的房间状态，而管理员可以查询所有的房间状态，不为前台提供这项接口
+    :param room_id: 房间号
+    :return:
+    """
+    account_id = get_jwt_identity()  # 查询来自的帐号id
+    acc = account.query(account_id=account_id, fetchone=True)
+    if acc is None:
+        return jsonify({}), 401  # 未授权
+    role = acc[3]  # 判断查询的是什么角色
+
+    if role == database.roles.manager:
+        room_details = record.query(room_number=room_id)  # 总经理可以查询任意id
+
+    elif role == database.roles.customer:
+        room_id = acc[4]
+        room_details = record.query(room_number=room_id,   # 根据客户自己的房间ID来查找，不论客户查询什么房间都返回其自己的房间信息
+                                    customer_session_id=record.get_latest_customer_session_id(room_id))
+    else:
+        room_details = None
+
+    if room_details is None:
+        return jsonify({}), 403  # Forbidden
+
+    if len(room_details) == 0:
+        return jsonify({'msg': 'found nothing'}), 404
+    print(room_details)
+    return jsonify({'roomDetails': room_details}), 200
+
+
 if __name__ == '__main__':
     app.run(port=5000)  # host='0.0.0.0',
+
+
 

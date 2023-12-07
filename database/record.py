@@ -1,7 +1,6 @@
 import os
 import sqlite3
-from typing import List, Tuple, Union
-
+from typing import List, Tuple, Union, Optional
 
 db_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../hotel.db'))
 
@@ -122,3 +121,21 @@ def query(
     conn.close()
 
     return records
+
+
+def get_latest_customer_session_id(room_number: int) -> Optional[int]:
+    """
+    获取特定房间号的最后一个入住的客户会话ID
+    :param room_number: 房间号
+    :return: 最后一个客户会话ID或None（如果没有找到记录）
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 按照时间戳降序排列并限制结果为一条记录
+    cursor.execute("SELECT customer_session_id FROM room_records WHERE room_number = ? ORDER BY timestamp DESC LIMIT 1", (room_number,))
+    result = cursor.fetchone()
+
+    conn.close()
+
+    return result[0] if result else None

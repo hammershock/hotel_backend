@@ -118,6 +118,34 @@ def update(
     conn.close()
 
 
+def update_kwargs(
+        room_number: int,
+        **kwargs) -> None:
+    """
+    修改房间属性
+    :param room_number: 要修改的房间号
+    :return: 修改的房间记录数
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    query = 'UPDATE room SET'
+    params = []
+
+    for field, value in kwargs.items():
+        query += f" {field} = ?,"
+        params.append(value)
+
+    query = query.rstrip(',')
+
+    query += ' WHERE room_number = ?'
+    params.append(room_number)
+
+    cursor.execute(query, params)
+    conn.commit()
+    conn.close()
+
+
 # 查
 def query(
         room_number: Union[int, tuple[int, int]] = None,
@@ -133,7 +161,7 @@ def query(
         account_id: int = None,
         fetchall=None,
         fetchone=None
-) -> List[Tuple[int, str, int, float, float, bool, int, str, str, int]]:
+) -> List[Tuple[int, str, int, float, float, bool, int, str, str, int]] | Tuple[int, str, int, float, float, bool, int, str, str, int]:
     """
     查询 room 表，支持多条件过滤
     :param room_number: 房间号
