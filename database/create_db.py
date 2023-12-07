@@ -1,5 +1,10 @@
 import os
+import random
 import sqlite3
+from datetime import datetime
+from itertools import product
+
+from database import account, room, settings
 
 db_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../hotel.db'))
 
@@ -96,3 +101,29 @@ conn.close()
 # room_create(idx, 111, '大床房', 1, 0.0, '', False, 28, 'low', 'heating', 32.1)
 # customer_create(idx, '666666', '333333')
 
+def generate_customer_session_id() -> int:
+    """
+    生成一个用于 customer_session_id 的随机整数
+    :return: 随机生成的 customer_session_id
+    """
+    # 生成一个随机整数，这里的范围可以根据需要调整
+    session_id = random.randint(10000, 99999)
+    return session_id
+
+
+account.create('111', '客户', '111', 110, '666', '233')
+account.create('222', '管理员', '222', None, '777', '724')
+account.create('333', '前台', '333', None, '999', '634')
+
+room.create(110, '大床房', 3, 3.0, 31, True, 32, 'high', 'cool', generate_customer_session_id(), 1)
+
+
+def get_time_stamp() -> str:
+    current_time = datetime.now()
+    timestamp_str = current_time.strftime('%Y-%m-%d %H:%M:%S')
+    return timestamp_str
+
+
+from database.roles import *
+for speed, mode in product([AC_SPEED_LOW, AC_SPEED_MEDIUM, AC_SPEED_HIGH], [AC_MODE_COOL, AC_MODE_HEAT]):
+    settings.create(get_time_stamp(), 20, 32, 0.1, speed, mode)

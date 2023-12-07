@@ -36,9 +36,10 @@ def generate_customer_session_id() -> int:
     return session_id
 
 
+@app.route('/update-status', methods=['POST'])
 @app.route('/update-status/<int:room_id>', methods=['POST'])
 @jwt_required()
-def update_status(room_id):
+def update_status(room_id=None):
     """
     写入房间状态数据<WRITE>
     # data
@@ -50,22 +51,22 @@ def update_status(room_id):
         # roomDuration　(可选，只有管理员可以修改)
 
         # 不提供给管理员修改房间总消费额和房间温度的API
-    :param room_id: 房间号
+    :param room_id: 房间号 (不填则根据客户信息自动导航)
     :return:
     """
     account_id = get_jwt_identity()  # 查询来自的帐号名
     account_data = account.query(account_id=account_id, fetchone=True)
-    role = account_data[3]  # 判断查询的是什么角色, 所有的角色都有这个权限故不做判定
+    role = account_data[3]
     data = request.json
 
+    if role == database.roles.customer:  # 自动跳转到用户自己的房间号
+        room_id = account_data[4]
+    print(room_id)
     # 检查房间是否存在
     room_data = room.query(room_number=room_id, fetchone=True)
 
     if room_data is None:
         return jsonify({"msg": 'room not found'}), 404
-
-    if account_id != room_data[1]:
-        return jsonify({"msg": ""}), 403  # 403 forbidden
 
     (room_number, account_id, room_type, room_duration, room_consumption, room_temperature,
      ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id) = room_data
@@ -233,10 +234,17 @@ def create_account():
     role = acc[3]  # 判断查询的是什么角色
 
     if role == database.roles.manager:
+        print(data)
+        print(data.get('roomNumber'))
+        if data.get('roomNumber'):
+            room_data = room.query(room_number=data['roomNumber'], fetchone=True)
+            if room_data is None or room_data[1] is not None:
+                return jsonify({"msg": "房间不存在或已被占用"}), 404  # 404 NotFound
+
         account.create(username=data['username'],
                        role=data['role'],
                        password=data['password'],
-                       room_number=data['roomNumber'],
+                       room_number=data.get('roomNumber', None),
                        id_card=data['idCard'],
                        phone_number=data['phoneNumber'])
         return jsonify({"msg": "创建成功"}), 201
@@ -335,10 +343,10 @@ def change_settings():
 
 # -------------------------------------------------------GET-----------------------------------------------------------
 
-
+@app.route('/room-status', methods=['GET'])
 @app.route('/room-status/<int:room_id>', methods=['GET'])
 @jwt_required()
-def get_room_status(room_id):
+def get_room_status(room_id=None):
     """
     查询房间状态数据<READ>
     权限设置：用户只能查询自己对应的房间状态，而管理员可以查询所有的房间状态，不为前台提供这项接口
@@ -349,12 +357,11 @@ def get_room_status(room_id):
     acc = account.query(account_id=account_id, fetchone=True)
     if acc is None:
         return jsonify({}), 401  # 未授权
-
     role = acc[3]  # 判断查询的是什么角色
 
-    if role == manager:
+    if role == database.roles.manager:
         room_status = room.query(fetchone=True, room_number=room_id)  # 总经理可以查询任意id
-    elif role == customer:
+    elif role == database.roles.customer:
         room_status = room.query(account_id=account_id, fetchone=True)  # 根据客户自己的房间ID来查找，不论客户查询什么房间都返回其自己的房间信息
     else:
         room_status = None
@@ -369,7 +376,7 @@ def get_room_status(room_id):
 
     return jsonify(
         {'isOn': ac_is_on,
-         'temperature': ac_temperature,
+         'acTemperature': ac_temperature,
          'fanSpeed': ac_speed,
          'mode': ac_mode,
          'consumption': room_consumption,
@@ -440,11 +447,14 @@ def get_accounts():
     account_id = get_jwt_identity()  # 查询来自的帐号名
 
     acc = account.query(account_id=account_id, fetchone=True)
+    if acc is None:
+        return jsonify({"msg": ""}), 424
+
     role = acc[3]  # 判断查询的是什么角色
     if role == database.roles.manager:
         accounts = account.query(fetchall=True)
-        # account_id, username, password, role, id_card, phone_number
-        return jsonify([{'accountID': r[0], "username": r[1], "role": r[3], "idCard": r[4], "phoneNumber": r[5]} for r in accounts]), 200
+        # account_id, username, password, role, room_number, id_card, phone_number
+        return jsonify([{'accountID': r[0], "username": r[1], "role": r[3], "roomNumber": r[4], "idCard": r[5], "phoneNumber": r[6]} for r in accounts]), 200
 
     return jsonify({"msg": ""}), 404
 
@@ -480,5 +490,5 @@ def get_rooms():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(port=5000)  # host='0.0.0.0',
 

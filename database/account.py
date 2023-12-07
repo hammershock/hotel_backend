@@ -101,7 +101,7 @@ def query(
     :param phone_number: 手机号
     :param fetchall:
     :param fetchone:
-    :return: (account_id, username, password, role, id_card, phone_number) | None | list
+    :return: (account_id, username, password, role, room_number, id_card, phone_number) | None | list
     """
     query = "SELECT * FROM account WHERE"
     params = []
@@ -148,4 +148,5 @@ if __name__ == "__main__":
     create('111', '客户', '111', 110, '666', '233')
     create('222', '管理员', '222', 111, '777', '724')
     create('333', '前台', '333', 112, '999', '634')
+
 
