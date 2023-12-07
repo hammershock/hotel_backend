@@ -14,7 +14,8 @@ def add(
         ac_temperature: int,
         ac_speed: str,
         ac_mode: str,
-        ac_rate: float
+        ac_rate: float,
+        consumption: float,
 ) -> int:
     """
     创建新的房间记录
@@ -27,15 +28,16 @@ def add(
     :param ac_speed: 空调风速
     :param ac_mode: 空调模式
     :param ac_rate: 空调费率
+    :param consumption: 累计消费
     :return: 创建的房间记录ID
     """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute(
-        'INSERT INTO room_records (room_number, customer_session_id, room_temperature, timestamp, ac_is_on, ac_temperature, ac_speed, ac_mode, ac_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO room_records (room_number, customer_session_id, room_temperature, timestamp, ac_is_on, ac_temperature, ac_speed, ac_mode, ac_rate, consumption) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (room_number, customer_session_id, room_temperature, timestamp, ac_is_on, ac_temperature, ac_speed, ac_mode,
-         ac_rate))
+         ac_rate, consumption))
 
     new_id = cursor.lastrowid
     conn.commit()
@@ -55,6 +57,7 @@ def query(
         ac_speed: str = None,
         ac_mode: str = None,
         ac_rate: Union[float, tuple[float, float]] = None,
+        consumption: Union[float, tuple[float, float]] = None,
         fetchall=None,
         fetchone=None) -> List[Tuple[int, int, int, float, str, bool, int, str, str, float]]:
     """
@@ -72,6 +75,7 @@ def query(
     :param ac_speed: 空调风速
     :param ac_mode: 空调模式
     :param ac_rate: 空调费率
+    :param consumption: 累计消费
     :param fetchall
     :param fetchone
     :return: 满足过滤条件的记录列表
@@ -90,7 +94,8 @@ def query(
         'ac_temperature': ac_temperature,
         'ac_speed': ac_speed,
         'ac_mode': ac_mode,
-        'ac_rate': ac_rate
+        'ac_rate': ac_rate,
+        'consumption': consumption
     }.items():
         if value is not None:
             if isinstance(value, tuple):

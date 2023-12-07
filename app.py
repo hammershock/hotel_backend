@@ -20,6 +20,9 @@ app.config['JWT_SECRET_KEY'] = os.urandom(24)
 jwt = JWTManager(app)
 
 
+details_fields = ["recordID", "roomNumber", "customerSessionID", "roomTemperature", "timestamp", "acIsOn", "acTemperature", "acSpeed", "acMode", "acRate", "consumption"]
+
+
 def get_time_stamp() -> str:
     current_time = datetime.datetime.now()
     timestamp_str = current_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -58,10 +61,9 @@ def update_status(room_id=None):
     account_data = account.query(account_id=account_id, fetchone=True)
     role = account_data[3]
     data = request.json
-
+    print("isOn", data['isOn'])
     if role == database.roles.customer:  # 自动跳转到用户自己的房间号
         room_id = account_data[4]
-    print(room_id)
     # 检查房间是否存在
     room_data = room.query(room_number=room_id, fetchone=True)
 
@@ -94,7 +96,8 @@ def update_status(room_id=None):
                ac_temperature=ac_temperature,
                ac_speed=ac_speed,
                ac_mode=ac_mode,
-               ac_rate=ac_rate)
+               ac_rate=ac_rate,
+               consumption=room_consumption)
 
     return jsonify({"msg": "状态更新成功"}), 200
 
@@ -554,6 +557,7 @@ def get_room_details(room_id=None):
     """
     account_id = get_jwt_identity()  # 查询来自的帐号id
     acc = account.query(account_id=account_id, fetchone=True)
+
     if acc is None:
         return jsonify({}), 401  # 未授权
     role = acc[3]  # 判断查询的是什么角色
@@ -573,8 +577,10 @@ def get_room_details(room_id=None):
 
     if len(room_details) == 0:
         return jsonify({'msg': 'found nothing'}), 404
-    print(room_details)
-    return jsonify({'roomDetails': room_details}), 200
+
+    details = [{field: value for field, value in zip(details_fields, detail)} for detail in room_details]
+    print({'roomDetails': details})
+    return jsonify({'roomDetails': details}), 200
 
 
 if __name__ == '__main__':

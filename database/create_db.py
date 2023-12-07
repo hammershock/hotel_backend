@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS room_records (
     ac_temperature INTEGER,
     ac_speed TEXT,
     ac_mode TEXT,
-    ac_rate REAL
+    ac_rate REAL, 
+    consumption REAL
 )
 ''')
 
@@ -107,15 +108,24 @@ def generate_customer_session_id() -> int:
     :return: 随机生成的 customer_session_id
     """
     # 生成一个随机整数，这里的范围可以根据需要调整
-    session_id = random.randint(10000, 99999)
+    session_id = random.randint(1, 99999)
     return session_id
 
 
-account.create('111', '客户', '111', 110, '666', '233')
+account.create('110b', '客户', '110b', 1101, '111', '233')
+account.create('110e', '客户', '110e', 1102, '222', '666')
+account.create('110f', '客户', '110f', 1103, '333', '233')
+account.create('110g', '客户', '110g', 1104, '444', '666')
+account.create('110f2', '客户', '110f2', 1105, '655566', '233')
+
 account.create('222', '管理员', '222', None, '777', '724')
 account.create('333', '前台', '333', None, '999', '634')
 
-room.create(110, '大床房', 3, 3.0, 31, True, 32, 'high', 'cool', generate_customer_session_id(), 1)
+room.create(1101, '大床房', 0, 0.0, 10.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
+room.create(1102, '大床房', 0, 0.0, 15.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
+room.create(1103, '标准间', 0, 0.0, 18.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
+room.create(1104, '大床房', 0, 0.0, 12.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
+room.create(1105, '标准间', 0, 0.0, 14.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
 
 
 def get_time_stamp() -> str:
@@ -125,5 +135,14 @@ def get_time_stamp() -> str:
 
 
 from database.roles import *
-for speed, mode in product([AC_SPEED_LOW, AC_SPEED_MEDIUM, AC_SPEED_HIGH], [AC_MODE_COOL, AC_MODE_HEAT]):
-    settings.create(get_time_stamp(), 20, 32, 0.1, speed, mode)
+from decimal import Decimal
+
+
+settings.create(get_time_stamp(), 18, 25, 1, AC_SPEED_HIGH, AC_MODE_HEAT)
+settings.create(get_time_stamp(), 18, 25, 0.5, AC_SPEED_MEDIUM, AC_MODE_HEAT)
+settings.create(get_time_stamp(), 18, 25, 1/3, AC_SPEED_LOW, AC_MODE_HEAT)
+
+settings.create(get_time_stamp(), 18, 28, 1, AC_SPEED_HIGH, AC_MODE_COOL)
+settings.create(get_time_stamp(), 18, 28, 0.5, AC_SPEED_MEDIUM, AC_MODE_COOL)
+settings.create(get_time_stamp(), 18, 28, 1/3, AC_SPEED_LOW, AC_MODE_COOL)
+
