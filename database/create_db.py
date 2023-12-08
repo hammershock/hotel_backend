@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS room (
     ac_speed TEXT,
     ac_mode TEXT,
     customer_session_id INTEGER,
+    
+    ac_will_on BOOLEAN,
+    time_since_first_on REAL,
+    room_init_temperature REAL,
+    
     FOREIGN KEY (account_id) REFERENCES account (account_id) ON DELETE SET NULL
 )
 ''')
@@ -121,11 +126,11 @@ account.create('110f2', '客户', '110f2', 1105, '655566', '233')
 account.create('222', '管理员', '222', None, '777', '724')
 account.create('333', '前台', '333', None, '999', '634')
 
-room.create(1101, '大床房', 0, 0.0, 10.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
-room.create(1102, '大床房', 0, 0.0, 15.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
-room.create(1103, '标准间', 0, 0.0, 18.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
-room.create(1104, '大床房', 0, 0.0, 12.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
-room.create(1105, '标准间', 0, 0.0, 14.0, True, 22, 'medium', 'heat', generate_customer_session_id(), None)
+room.create(1101, '大床房', 0, 0.0, 10.0, False, 22, 'medium', 'heat', generate_customer_session_id(), None, ac_will_on=False, time_since_first_on=0., room_init_temperature=10.)
+room.create(1102, '大床房', 0, 0.0, 15.0, False, 22, 'medium', 'heat', generate_customer_session_id(), None, ac_will_on=False, time_since_first_on=0., room_init_temperature=15.)
+room.create(1103, '标准间', 0, 0.0, 18.0, False, 22, 'medium', 'heat', generate_customer_session_id(), None, ac_will_on=False, time_since_first_on=0., room_init_temperature=18.)
+room.create(1104, '大床房', 0, 0.0, 12.0, False, 22, 'medium', 'heat', generate_customer_session_id(), None, ac_will_on=False, time_since_first_on=0., room_init_temperature=12.)
+room.create(1105, '标准间', 0, 0.0, 14.0, False, 22, 'medium', 'heat', generate_customer_session_id(), None, ac_will_on=False, time_since_first_on=0., room_init_temperature=14.)
 
 
 def get_time_stamp() -> str:

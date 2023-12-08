@@ -31,18 +31,18 @@ class AirConditioner:
             # Adjust the temperature towards the initial temperature
             self.current_temp -= 0.5 * dt if self.current_temp > self.initial_temp else 0.5 * dt
 
-    def switch(self, state, fan_speed=None):
+    def switch(self, is_on=None, fan_speed=None, set_temp=None):
         """
         设置空调状态
         """
-        self.is_on = state
-        if self.is_on:
-            self.scheduler.add_to_waiting(self)
-        else:
-            self.scheduler.remove_from_service(self)
+        if is_on is not None:
+            self.is_on = is_on
 
         if fan_speed:
             self.fan_speed = fan_speed
+
+        if set_temp is not None:
+            self.set_temp = set_temp
 
     def reset_time_on(self):
         """
@@ -90,30 +90,27 @@ class Scheduler:
 
     def update_queues(self, dt):
         """
-        时间调度
+        为使用中的客户计时，超出时间限制就被强行关闭，加入等待队列
         """
-        # Update time on for ACs in service queue and move them to waiting queue if needed
+        #
         for ac in self.service_queue:
             ac.time_on += dt
             if ac.time_on >= self.time_slice:
                 self.service_queue.remove(ac)
-                self.add_to_waiting(ac)
+                self.add_to_waiting(ac)  # 重新放进优先级队列等待
                 ac.reset_time_on()
 
-        # Move ACs from waiting to service queue if there is space
+        # 超时的给等待队列的对头让位
         while len(self.service_queue) < 3 and self.waiting_queue:
-            self.service_queue.append(self.waiting_queue.pop(0))  # 取优先级最高的加入
+            self.service_queue.append(self.waiting_queue.pop(0))
 
     def step(self, dt):
         """
         时间片轮转，执行调度
         """
-        # Update the temperature for all ACs
-        for ac in self.service_queue + self.waiting_queue:
+        for ac in acs:  # 处理动态逻辑
             ac.update(dt)
-
-        # Update the queues
-        self.update_queues(dt)
+        self.update_queues(dt)  # 优先级＋时间片轮转
 
 
 scheduler = Scheduler()
@@ -125,19 +122,67 @@ acs = [AirConditioner(scheduler, i, temp) for i, temp in enumerate([10, 15, 18, 
 for ac in acs:
     scheduler.add_to_service(ac)
 
+table = [
+    ['开机',None, None, None, None],  # 1min -> 10s
+    ['24', '开机',None, None, None],
+    [None, None, '开机', None, None],
+    [None, '25', None, '开机', '开机'],
+    [None, None, '27', None, '高'],
+    ['高', None, None, None, None],
+    [None, None, None, None, None],
+    [None, None, None, None, '24'],
+    [None, None, None, None, None],
+    ['28', None, None, '28', '高'],
+    [None, None, None, None, None],
+    [None, None, None, None, '中'],
+    [None, '高', None, None, None],
+    [None, None, None, None, None],
+    ['关机', None, '低', None, None],
+    [None, None, None, None, None],
+    [None, None, None, None, '关机'],
+    [None, None, '高', None, None],
+    ['开机', None, '25，中', None, None],
+    [None, None, None, None, None],
+    [None, '27，中', None, None, '开机'],
+    [None, None, None, None, None],
+    [None, None, None, None, None],
+    [None, None, None, None, None],
+    ['关机', None, '关机', None, '关机'],
+    [None, '关机', None, '关机', None],
+    [None, None, None, None, None]
+]
 
-on = [[1, 0, 0, 0, 0], [0, 1, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 1]]
 
-dt = 0.1
+dt = 1
 # The main loop simulating the time steps
-for t, states, fan_speeds in zip(range(30), [[] * 30], [[] * 30]):  # Simulating 10 time steps
-    for state, fan_speed, ac in zip(states, fan_speeds, acs):
-        ac.switch(state, fan_speed=fan_speed)
+for i, states in enumerate(table):  # Simulating 10 time steps
+    for state, ac in zip(states, acs):
+        ac_state = None
+        if state is None:
+            continue
+        if '开机' in state:
+            ac_state = True
+        elif '关机' in state:
+            ac_state = False
+
+        fan_speed = None
+        if '中' in state:
+            fan_speed = 'medium'
+        elif '低' in state:
+            fan_speed = 'low'
+        elif '高' in state:
+            fan_speed = 'high'
+
+        ac_temperature = None
+        if (str(state)[:2]).isdigit():
+            ac_temperature = int(str(state)[:2])
+
+        ac.switch(fan_speed=fan_speed, set_temp=ac_temperature)
 
     scheduler.step(dt)
     # Print the status of each AC
-    for ac in acs:
-        print(f"Room {ac.room_id}: Temp - {ac.current_temp:.2f}, Status - {'On' if ac.is_on else 'Off'}")
+    print([(f"{ac.current_temp:.2f}", ac.is_on) for ac in acs])
+
 
     # Insert a pause or condition here to receive and process requests
 

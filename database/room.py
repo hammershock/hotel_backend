@@ -19,7 +19,11 @@ def create(
         ac_speed: str,
         ac_mode: str,
         customer_session_id: int,
-        account_id: int = None
+        account_id: int = None,
+        ac_will_on: bool = None,
+        time_since_first_on: float = None,
+        room_init_temperature: float = None
+
 ) -> int:
     """
     创建新的房间记录
@@ -33,16 +37,20 @@ def create(
     :param ac_speed: 空调风速
     :param ac_mode: 空调模式
     :param customer_session_id:
+    :param ac_will_on 空调开启的意愿
+    :param time_since_first_on: 距离刚开始的时间
     :param account_id: 账号 ID（可选，如果有账号与房间关联）
+    :param room_init_temperature: 房间初始温度
     :return: 创建的房间记录ID
     """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    # ac_will, ac_is_on, time_since_on,
     cursor.execute(
-        'INSERT INTO room (room_number, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, account_id, customer_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO room (room_number, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, account_id, customer_session_id, ac_will_on, time_since_first_on, room_init_temperature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (room_number, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed,
-         ac_mode, account_id, customer_session_id))
+         ac_mode, account_id, customer_session_id, ac_will_on, time_since_first_on, room_init_temperature))
 
     new_id = cursor.lastrowid
     conn.commit()
@@ -77,7 +85,10 @@ def update(
         ac_speed: str = None,
         ac_mode: str = None,
         customer_session_id: int = None,
-        account_id: int = None
+        account_id: int = None,
+        ac_will_on: bool = None,
+        time_since_first_on: float = None,
+        room_init_temperature: float = None,
 ) -> None:
     """
     修改房间属性
@@ -92,6 +103,9 @@ def update(
     :param ac_mode: 空调模式
     :param customer_session_id: 顾客会话ID
     :param account_id: 账号 ID（可选，如果要关联账号）
+    :param ac_will_on 开启空调的意愿
+    :param time_since_first_on 距离上次开启空调的时间
+    :param room_init_temperature:
     :return: 修改的房间记录数
     """
     conn = sqlite3.connect(db_path)
@@ -103,7 +117,9 @@ def update(
     for field, value in {'room_type': room_type, 'room_duration': room_duration,
                          'room_consumption': room_consumption, 'room_temperature': room_temperature,
                          'ac_is_on': ac_is_on, 'ac_temperature': ac_temperature, 'ac_speed': ac_speed,
-                         'ac_mode': ac_mode, 'customer_session_id': customer_session_id, 'account_id': account_id}.items():
+                         'ac_mode': ac_mode, 'customer_session_id': customer_session_id, 'account_id': account_id,
+                         "ac_will_on": ac_will_on, "time_since_first_on": time_since_first_on,
+                         "room_init_temperature": room_init_temperature}.items():
         if value is not None:
             query += f" {field} = ?,"
             params.append(value)
@@ -159,6 +175,9 @@ def query(
         ac_mode: str = None,
         customer_session_id: int = None,
         account_id: int = None,
+        ac_will_on: bool = None,
+        time_since_first_on: float = None,
+        room_init_temperature: float = None,
         fetchall=None,
         fetchone=None
 ) -> List[Tuple[int, str, int, float, float, bool, int, str, str, int]] | Tuple[int, str, int, float, float, bool, int, str, str, int]:
@@ -175,9 +194,12 @@ def query(
     :param ac_mode: 空调模式
     :param customer_session_id: 顾客会话ID
     :param account_id: 账号 ID（可选，如果要查询与账号关联的房间）
+    :param ac_will_on:
+    :param time_since_first_on
+    :param room_init_temperature
     :param fetchall
     :param fetchone
-    :return: (room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id)
+    :return: (room_number, account_id, room_type, room_duration, room_consumption, room_temperature, ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id, ac_will_on, time_since_first_on, room_initial_temperature)
     """
     query = "SELECT * FROM room WHERE"
     params = []
@@ -194,7 +216,10 @@ def query(
         'ac_speed': ac_speed,
         'ac_mode': ac_mode,
         'customer_session_id': customer_session_id,
-        'account_id': account_id
+        'account_id': account_id,
+        "ac_will_on": ac_will_on,
+        "time_since_first_on": time_since_first_on,
+        "room_init_temperature": room_init_temperature,
     }.items():
         if value is not None:
             if isinstance(value, tuple):
@@ -239,5 +264,5 @@ def generate_customer_session_id() -> int:
     return session_id
 
 
-if __name__ == "__main__":
-    create(345, '大床房', 3, 3.0, 31, True, 32, 'high', 'cool', generate_customer_session_id(), 2)
+# if __name__ == "__main__":
+#     create(345, '大床房', 3, 3.0, 31, True, 32, 'high', 'cool', generate_customer_session_id(), 2, ac_will_on=False, time_since_first_on=0.0)

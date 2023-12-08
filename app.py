@@ -1,5 +1,6 @@
 import os
 import random
+import time
 
 from flask import Flask, request, jsonify
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
@@ -39,6 +40,160 @@ def generate_customer_session_id() -> int:
     return session_id
 
 
+def form_change(data):
+    result = []
+
+    for i, entry in enumerate(data):
+        if i == 0:
+            continue  # Skip the first entry
+
+        prev_entry = data[i - 1]
+
+        if prev_entry['acIsOn'] == 1:
+            request_time = datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')
+            start_time = datetime.datetime.strptime(prev_entry['timestamp'], '%Y-%m-%d %H:%M:%S')
+            end_time = request_time
+            service_duration = (end_time - start_time).total_seconds()
+            cost = service_duration * prev_entry['acRate']
+            room_info = {
+                'roomNumber': entry['roomNumber'],
+                'request_time': entry['timestamp'],
+                'start_time': prev_entry['timestamp'],
+                'end_time': entry['timestamp'],
+                'service_duration': service_duration,
+                'acSpeed': entry['acSpeed'],
+                'current_cost': cost,
+                'acRate': entry['acRate']
+            }
+            result.append(room_info)
+    return result
+
+
+
+# cycle per minute
+# dynamic logic, room temperature update, fee count
+# room temperature will influence ac state
+
+# for each room:
+
+    # if room isOn and not willOn:
+        # remove room from list
+#   if room isOn:
+        # d_time = time() - lasttime
+        # if d_time > time_limit:
+            # put this room to waiting list
+            # reset timer
+
+    # if room not isOn and willOn:
+        # push room to waiting queue
+
+    # for waiting in waiting queue:
+        # if len(running) < max_running_count:
+            # add waiting to running queue
+
+
+# implementation:
+
+
+import heapq
+import time
+
+
+CYCLE = 1  # 1minute == 6s
+
+TIME_LIMIT = 12  # 2min == 12s
+MAX_RUNNING = 3  # 3 air conditioners
+
+running_list = []
+
+waiting_queue = []  # 等待队列现在是一个堆
+
+
+def get_priority(ac_speed):
+    """根据空调风速返回优先级"""
+    return {'high': 1, 'medium': 2, 'low': 3}.get(ac_speed, 3)
+
+
+def schedule():
+    global running_list, waiting_queue
+    print('schedule', running_list, waiting_queue)
+    running_list = list(set(running_list))
+    waiting_queue = list(set(waiting_queue))
+    for (room_number, account_id, room_type, room_duration,
+         room_consumption, room_temperature, ac_is_on, ac_temperature,
+         ac_speed, ac_mode, customer_session_id, ac_will_on, time_since_first_on, room_init_temperature) in room.query(fetchall=True):
+        print('will on:', ac_will_on)
+        if ac_is_on:
+            if ac_speed == 'high':
+                change = 1
+            elif ac_speed == 'medium':
+                change = 0.5
+            else:  # low speed
+                change = 1 / 3
+            # 收费逻辑
+            room_consumption += change * CYCLE
+            # 空调开启时房间温度更新逻辑
+            room_temperature += change * CYCLE if room_temperature < ac_temperature else -change * CYCLE
+            # 当房间温度接近设定温度时，主动让出队列
+            if abs(room_temperature - ac_temperature) <= change * CYCLE:  #
+                room.update(room_number, time_since_first_on=None, ac_will_on=False, ac_is_on=False)
+                print(f"remove0: {room_number}房间温度接近设定温度时，主动让出队列")
+                running_list.remove(room_number)
+        else:
+            # 空调关闭时的回温逻辑
+            room_temperature -= 0.5 * CYCLE if room_temperature > room_init_temperature else 0
+        room.update(room_number, room_consumption=room_consumption, room_temperature=room_temperature)
+    for (room_number, account_id, room_type, room_duration,
+         room_consumption, room_temperature, ac_is_on, ac_temperature,
+         ac_speed, ac_mode, customer_session_id, ac_will_on, time_since_first_on, room_init_temperature) in room.query(fetchall=True):
+
+        # 自愿放弃空调
+        if ac_is_on and not ac_will_on:
+            print("remove1", f"{room_number}自愿放弃空调")
+            running_list.remove(room_number)
+            room.update(room_number, ac_is_on=False)
+        # 空调开启则对其计时，超时重新排队
+        elif ac_is_on and ac_will_on:
+            d_time = time.time() - time_since_first_on
+            if d_time > TIME_LIMIT:
+                print(f"remove2: {room_number}超时, 重新排队")
+                if room_number in running_list:
+                    running_list.remove(room_number)  #
+                    will = True
+                else:
+                    will = False
+                heapq.heappush(waiting_queue, (get_priority(ac_speed), room_number))
+                room.update(room_number, ac_will_on=will, ac_is_on=False, time_since_first_on=time.time())
+
+        # 新的空调加入排队
+        elif not ac_is_on and ac_will_on and (get_priority(ac_speed), room_number) not in waiting_queue and room_number not in running_list:
+            print(f"3: 新的空调{room_number}加入排队", )
+            # 将房间加入等待队列，优先级由风速决定
+            heapq.heappush(waiting_queue, (get_priority(ac_speed), room_number))
+
+        # 等待队列中顺次取出开始运行， 这是进入running唯一的入口
+        while waiting_queue and len(running_list) < MAX_RUNNING:
+            _, room_number = heapq.heappop(waiting_queue)
+            running_list.append(room_number)
+            room.update(room_number, time_since_first_on=time.time(), ac_is_on=True)
+
+
+import threading
+
+def schedule_wrapper():
+    try:
+        schedule()  # 调用你的调度函数
+    finally:
+        # 安排下一次执行
+        threading.Timer(6, schedule_wrapper).start()
+
+# 在Flask应用启动时启动定时器
+threading.Timer(6, schedule_wrapper).start()
+
+
+
+
+
 @app.route('/update-status', methods=['POST'])
 @app.route('/update-status/<int:room_id>', methods=['POST'])
 @jwt_required()
@@ -61,7 +216,7 @@ def update_status(room_id=None):
     account_data = account.query(account_id=account_id, fetchone=True)
     role = account_data[3]
     data = request.json
-    print("isOn", data['isOn'])
+    # print("isOn", data['isOn'])
     if role == database.roles.customer:  # 自动跳转到用户自己的房间号
         room_id = account_data[4]
     # 检查房间是否存在
@@ -71,7 +226,7 @@ def update_status(room_id=None):
         return jsonify({"msg": 'room not found'}), 404
 
     (room_number, account_id, room_type, room_duration, room_consumption, room_temperature,
-     ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id) = room_data
+     ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id, ac_will_on, time_since_first_on, room_init_temperature) = room_data
 
     is_manager = role == database.roles.manager
     # 检验修改是否合法
@@ -80,7 +235,7 @@ def update_status(room_id=None):
     room.update(room_number=room_id,
                 room_type=data.get('roomType', None) if is_manager else None,
                 room_duration=data.get('roomDuration', None) if is_manager else None,
-                ac_is_on=data['isOn'],
+                ac_will_on=data['isOn'],  # 这里修改开启空调的意愿
                 ac_temperature=data['temperature'],
                 ac_speed=data['fanSpeed'],
                 ac_mode=data['mode'],
@@ -92,7 +247,7 @@ def update_status(room_id=None):
                customer_session_id=customer_session_id,
                room_temperature=room_temperature,
                timestamp=get_time_stamp(),
-               ac_is_on=ac_is_on,
+               ac_is_on=ac_is_on,  # 这里还是实际的空调状态
                ac_temperature=ac_temperature,
                ac_speed=ac_speed,
                ac_mode=ac_mode,
@@ -185,7 +340,9 @@ def register():
                     room_duration=data['days'],
                     room_consumption=0.0,  # 初始化房间累计消费额为0
                     account_id=new_account_id,  # 将创建的用户id与房间关联
-                    customer_session_id=generate_customer_session_id())  # 生成随机用户会话标记，标记每个用户的入住阶段
+                    customer_session_id=generate_customer_session_id(),
+                    ac_will_on=False,
+                    time_since_first_on=0.0)  # 生成随机用户会话标记，标记每个用户的入住阶段
 
         return jsonify({"msg": "注册成功", "newAccountID": new_account_id}), 201
 
@@ -294,7 +451,14 @@ def create_account():
                            id_card=data['idCard'],
                            phone_number=data['phoneNumber'])
 
-            room.update(room_number, room_duration=data['days'], room_consumption=0.0, customer_session_id=generate_customer_session_id(), account_id=account_id)
+            room.update(room_number,
+                        room_duration=data['days'],
+                        room_consumption=0.0,
+                        customer_session_id=generate_customer_session_id(),
+                        account_id=account_id,
+                        ac_will_on=False,
+                        time_since_first_on=0.0)
+
             return jsonify({"msg": "用户帐号已经注册且入住已经办理"}), 201
 
         account.create(username=data['username'],
@@ -330,17 +494,21 @@ def create_room():
     role = acc[3]  # 判断查询的是什么角色
 
     if role == database.roles.manager:
+        room_temperature = random.randint(27, 34)
         room.create(room_number=data['roomNumber'],
                     room_type=data['roomType'],
                     room_duration=0,  # 设置为0
                     room_consumption=0.0,  # 初始消费为0
-                    room_temperature=random.randint(27, 34),  # 初始温度随机
+                    room_temperature=room_temperature,  # 初始温度随机
                     ac_is_on=False,
                     ac_temperature=DEFAULT_AC_TEMPERATURE,
                     ac_speed=AC_SPEED_LOW,
                     ac_mode=AC_MODE_COOL,
                     customer_session_id=generate_customer_session_id(),
-                    account_id=None)  # 帐号关联为空
+                    account_id=None,   # 帐号关联为空
+                    ac_will_on=False,
+                    time_since_first_on=0.0,
+                    room_init_temperature=room_temperature)
 
         return jsonify({"msg": "创建成功"}), 201
     return jsonify({"msg": ""}), 404
@@ -426,12 +594,12 @@ def get_room_status(room_id=None):
         return jsonify({}), 403  # Forbidden
 
     (room_number, account_id, room_type, room_duration, room_consumption, room_temperature,
-     ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id) = room_status
+     ac_is_on, ac_temperature, ac_speed, ac_mode, customer_session_id, ac_will_on, time_since_first_on, room_init_temperature) = room_status
 
     _, _, min_temperature, max_temperature, ac_rate = settings.get_latest_setting(ac_speed, ac_mode)
 
     return jsonify(
-        {'isOn': ac_is_on,
+        {'isOn': ac_is_on,  # 这里空调的实际状态还是ac_is_on并不是ac_will_on
          'acTemperature': ac_temperature,
          'fanSpeed': ac_speed,
          'mode': ac_mode,
@@ -545,6 +713,18 @@ def get_rooms():
     return jsonify({"msg": ""}), 404
 
 
+# room_info = {
+#                 'roomNumber': entry['roomNumber'],
+#                 'request_time': entry['timestamp'],
+#                 'start_time': prev_entry['timestamp'],
+#                 'end_time': entry['timestamp'],
+#                 'service_duration': service_duration,
+#                 'acSpeed': entry['acSpeed'],
+#                 'current_cost': cost,
+#                 'acRate': entry['acRate']
+#             }
+
+
 @app.route('/room-details', methods=['GET'])
 @app.route('/room-details/<int:room_id>', methods=['GET'])
 @jwt_required()
@@ -579,8 +759,13 @@ def get_room_details(room_id=None):
         return jsonify({'msg': 'found nothing'}), 404
 
     details = [{field: value for field, value in zip(details_fields, detail)} for detail in room_details]
-    print({'roomDetails': details})
-    return jsonify({'roomDetails': details}), 200
+    result = form_change(details)
+    merged_data = []
+    for det, res in zip(details, result):
+        det.update(res)
+        merged_data.append(det)
+
+    return jsonify({'roomDetails': merged_data}), 200
 
 
 if __name__ == '__main__':
