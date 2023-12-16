@@ -603,6 +603,10 @@ def room_create():
     return jsonify({"msg": "创建成功"}), 201
 
 
+def format(s):
+    return str(s).replace(',', '.')
+
+
 def room_info(room: Room, require_details=False, for_manager=True):
     if room is None:
         abort(404, "room not found")
@@ -624,12 +628,9 @@ def room_info(room: Room, require_details=False, for_manager=True):
                 initialTemperature=room.initialTemperature, queueState=room.queueState.value,
                 minTemperature=latest_settings.minTemperature, maxTemperature=latest_settings.maxTemperature,
                 firstRunTime=room.firstRuntime, customerSessionID=room.customerSessionID, consumption=room.consumption,
-                checkInTime=room.checkInTime, occupied=room.customerSessionID is not None,
+                checkInTime=format(room.checkInTime), occupied=room.customerSessionID is not None,
+                currentTime=format(datetime.now()), days=(datetime.now() - room.checkInTime).days + 1,
                 roomDetails=[record_info(record) for record in records] if records is not None else None)
-
-
-def format(s):
-    return str(s).replace(',', '.')
 
 
 def record_info(record: RoomRecord):
